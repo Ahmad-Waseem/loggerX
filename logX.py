@@ -11,7 +11,7 @@ import socket
 from datetime import datetime
 
 class ComprehensiveFileChangeMonitor:
-    def __init__(self, log_directory='/log/file_monitor', monitoring_interval=60):
+    def __init__(self, log_directory='/var/log/file_monitor', monitoring_interval=60):
         self.log_directory = log_directory
         self.monitoring_interval = monitoring_interval
         self.suspicious_threshold = 5  # Number of changes in timeframe to trigger suspicion
@@ -93,8 +93,36 @@ class ComprehensiveFileChangeMonitor:
         suspicious_entry = (f"SUSPICIOUS ACTIVITY DETECTED\n"
                             f"File: {filepath}\n"
                             f"Event: {event_type}\n"
-                            f"Metadata: {metadata}\n")
+                            f"Metadata: {metadata}\n"
+                            f"Hostname: {socket.gethostname()}")
         self.suspicious_log.warning(suspicious_entry)
+
+class FileWatcher(FileSystemEventHandler):
+    def __init__(self, monitor):
+        self.monitor = monitor
+        self.log_directory = os.path.realpath(self.monitor.log_directory)
+
+    def should_exclude(self, path):
+        """Exclude events from the logging directory."""
+        # Resolve absolute paths to avoid mismatches
+        absolute_path = os.path.realpath(path)
+        return absolute_path.startswith(self.log_directory)
+
+    def on_created(self, event):
+        if not event.is_directory and not self.should_exclude(event.src_path):
+            self.monitor.log_file_change("CREATED", event.src_path)
+
+    def on_modified(self, event):
+        if not event.is_directory and not self.should_exclude(event.src_path):
+            self.monitor.log_file_change("MODIFIED", event.src_path)
+
+    def on_deleted(self, event):
+        if not event.is_directory and not self.should_exclude(event.src_path):
+            self.monitor.log_file_change("DELETED", event.src_path)
+
+    def on_moved(self, event):
+        if not event.is_directory and not self.should_exclude(event.dest_path):
+            self.monitor.log_file_change("RENAMED", event.dest_path)
 
 def monitor_root_filesystem():
     """
